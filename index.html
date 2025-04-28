@@ -1,0 +1,1461 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LED大屏模组组装工具</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@100;200;400;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://unpkg.com/@pdf-lib/fontkit@0.0.4/dist/fontkit.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+    <style>
+        body {
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #e6f0fa 0%, #d0e3ff 50%, #a3cfff 100%);
+            color: #1a2b5f;
+            font-family: 'Inter', 'JetBrains Mono', sans-serif;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        /* Subtle tech pattern in the background */
+        body::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" opacity="0.1"%3E%3Cpath fill="none" stroke="%231a2b5f" stroke-width="0.5" d="M0 50h100M50 0v100M25 25l50 50M25 75l50-50"/%3E%3C/svg%3E');
+            background-size: 100px 100px;
+            opacity: 0.1;
+            z-index: 0;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            background: linear-gradient(135deg, #ffffff 0%, #e6f0fa 100%);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 8px 24px rgba(26, 43, 95, 0.1);
+            border: 1px solid rgba(26, 43, 95, 0.1);
+            transition: all 0.3s ease;
+            position: relative;
+            z-index: 1;
+        }
+
+        .container:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 32px rgba(26, 43, 95, 0.15);
+            border: 1px solid rgba(26, 43, 95, 0.2);
+        }
+
+        h1 {
+            font-family: 'Inter', sans-serif;
+            font-weight: 700;
+            letter-spacing: 1px;
+            background: linear-gradient(135deg, #1a2b5f, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 8px rgba(59, 130, 246, 0.3);
+        }
+
+        #canvasContainer {
+            border: 1px solid rgba(26, 43, 95, 0.2);
+            margin-top: 25px;
+            overflow: hidden;
+            height: auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 500px;
+            width: 100%;
+            background: linear-gradient(135deg, rgba(230, 240, 250, 0.3), rgba(163, 207, 255, 0.3));
+            border-radius: 15px;
+            position: relative;
+            box-shadow: 0 8px 24px rgba(26, 43, 95, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        #canvasContainer:hover {
+            border-color: rgba(59, 130, 246, 0.4);
+            box-shadow: 0 12px 32px rgba(26, 43, 95, 0.15);
+            transform: translateY(-2px);
+        }
+
+        #ledCanvas {
+            background: rgba(230, 240, 250, 0.9);
+            display: block;
+            box-shadow: inset 0 0 20px rgba(26, 43, 95, 0.1);
+        }
+
+        .control-panel {
+            margin-bottom: 20px;
+        }
+
+        .form-control, .form-select {
+            font-family: 'JetBrains Mono', monospace;
+            background: rgba(255, 255, 255, 0.8);
+            border: 1px solid rgba(26, 43, 95, 0.2);
+            color: #1a2b5f;
+            padding: 10px 15px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .form-control:hover, .form-select:hover {
+            background: rgba(255, 255, 255, 1);
+            border-color: rgba(59, 130, 246, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .form-control:focus, .form-select:focus {
+            background: rgba(255, 255, 255, 1);
+            color: #1a2b5f;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.2);
+        }
+
+        .form-control.active, .form-select.active {
+            background: rgba(230, 240, 250, 1);
+            border-color: rgba(59, 130, 246, 0.4);
+        }
+
+        .form-select {
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='%233b82f6' stroke='%233b82f6' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='M2 5l6 6 6-6'/%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 0.75rem center;
+            background-size: 16px 12px;
+            padding-right: 2.5rem;
+            appearance: none;
+        }
+
+        .custom-file-upload,
+        .btn-outline-success,
+        .btn-outline-secondary {
+            width: 160px; /* 设置固定宽度替代 min-width */
+            height: 48px;
+            padding: 12px 24px;
+            font-size: 1.1rem;
+            border-radius: 10px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            transition: all 0.3s ease;
+            box-sizing: border-box;
+            white-space: nowrap; /* 防止文字换行 */
+            overflow: hidden; /* 防止文字溢出 */
+            text-overflow: ellipsis; /* 文字溢出时显示省略号 */
+        }
+
+        .btn-outline-success,
+        .btn-outline-secondary {
+            border: 1px solid rgba(26, 43, 95, 0.2);
+        }
+
+        .custom-file-upload {
+            background: linear-gradient(135deg, #3b82f6, #1e40af);
+            color: #fff;
+            border: none;
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.2);
+        }
+
+        .custom-file-upload:hover {
+            background: rgba(59, 130, 246, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .custom-file-upload.active {
+            background: rgba(59, 130, 246, 0.2);
+            border-color: rgba(59, 130, 246, 0.4);
+        }
+
+        #imagePreviewStatus {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #1a2b5f;
+        }
+
+        .mode-panel {
+            margin-bottom: 15px;
+        }
+
+        .mode-panel .btn {
+            font-family: 'Inter', sans-serif;
+            margin-right: 10px;
+            padding: 12px 20px;
+            font-weight: 600;
+            font-size: 1.1rem;
+            letter-spacing: 0.5px;
+            border-radius: 10px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            color: #1a2b5f;
+            background: rgba(255, 255, 255, 0.8);
+            border: 1px solid rgba(26, 43, 95, 0.2);
+        }
+
+        .mode-panel .btn.active {
+            background: linear-gradient(135deg, #3b82f6, #1e40af);
+            color: #fff;
+            transform: scale(1.05);
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+            border: 1px solid #3b82f6;
+        }
+
+        .mode-panel .btn:hover:not(.active) {
+            background: rgba(255, 255, 255, 1);
+            transform: scale(1.02);
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.2);
+        }
+
+        @keyframes ripple {
+            0% { transform: scale(0, 0); opacity: 0.5; }
+            20% { transform: scale(25, 25); opacity: 0.3; }
+            100% { opacity: 0; transform: scale(40, 40); }
+        }
+
+        .input-group {
+            margin-bottom: 10px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #3b82f6, #1e40af);
+            border: none;
+            transition: all 0.3s ease;
+            padding: 12px 24px;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.2);
+            color: #fff;
+            height: 48px; /* 固定高度 */
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn-secondary {
+            padding: 12px 24px;
+            font-size: 1.1rem;
+            line-height: 1.5;
+            min-width: 120px;
+            height: 48px; /* 与 btn-primary 保持一致的高度 */
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            background: rgba(255, 255, 255, 0.8);
+            border: 1px solid rgba(26, 43, 95, 0.2);
+            border-radius: 10px;
+            color: #1a2b5f;
+            transition: all 0.3s ease;
+        }
+
+        .btn-outline-success {
+            padding: 12px 24px;
+            font-size: 1.1rem;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            border: 1px solid #3b82f6;
+            color: #1a2b5f;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.05), rgba(59, 130, 246, 0.1));
+            box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.1);
+        }
+
+        .btn-outline-success:hover {
+            border-color: #1e40af;
+            color: #fff;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(30, 64, 175, 0.2));
+        }
+
+        .btn-outline-secondary {
+            padding: 12px 24px;
+            font-size: 1.1rem;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            border: 1px solid rgba(26, 43, 95, 0.2);
+            color: #1a2b5f;
+            background: rgba(255, 255, 255, 0.8);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #3b82f6, #1e40af);
+            border: none;
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.2);
+            padding: 12px 24px;
+            font-size: 1.1rem;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            color: #fff;
+        }
+
+        .btn-primary:hover, .btn-success:hover {
+            background: linear-gradient(135deg, #1e40af, #3b82f6);
+            box-shadow: 0 6px 20px rgba(59, 130, 246, 0.3);
+        }
+
+        .form-select option {
+            background-color: rgba(230, 240, 250, 0.9);
+            color: #1a2b5f;
+        }
+
+        .dimension-highlight {
+            font-size: 1.1em;
+            color: #3b82f6;
+            text-shadow: 0 0 5px rgba(59, 130, 246, 0.3);
+            font-weight: 700;
+        }
+
+        .alert-info {
+            background: rgba(255, 255, 255, 0.8);
+            border: 1px solid rgba(26, 43, 95, 0.2);
+            color: #1a2b5f;
+            border-radius: 10px;
+        }
+
+        .export-panel {
+            background: rgba(255, 255, 255, 0.8);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(26, 43, 95, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .export-panel:hover {
+            background: rgba(255, 255, 255, 1);
+            border-color: rgba(59, 130, 246, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .export-panel .btn {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+            background: rgba(255, 255, 255, 0.8);
+            border: 1px solid rgba(26, 43, 95, 0.2);
+            color: #1a2b5f;
+        }
+
+        .export-panel .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(59, 130, 246, 0.2);
+            background: rgba(59, 130, 246, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-center mb-4">LED大屏模组组装工具</h1>
+        <div class="control-panel">
+            <div class="row">
+                <div class="col-md-3">
+                    <label for="pixelPitch" class="form-label">LED点间距 (mm):</label>
+                    <select id="pixelPitch" class="form-select">
+                        <option value="1.25">P1.25</option>
+                        <option value="1.53">P1.53</option>
+                        <option value="1.66">P1.66</option>
+                        <option value="1.8">P1.8</option>
+                        <option value="2">P2</option>
+                        <option value="2.5">P2.5</option>
+                        <option value="3">P3</option>
+                        <option value="4">P4</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="moduleSize" class="form-label">模组尺寸 (mm):</label>
+                    <select id="moduleSize" class="form-select">
+                        <option value="300x337.5">300 x 337.5</option>
+                        <option value="320x160">320 x 160</option>
+                        <option value="304x168.5">304 x 168.5</option>
+                        <option value="256x128">256 x 128</option>
+                        <option value="192x192">192 x 192</option>
+                    </select>
+                </div>
+                <div class="col-md-6 d-flex align-items-end gap-2">
+                    <button id="generateBtn" class="btn btn-primary flex-grow-1">生成布局</button>
+                    <button id="resetBtn" class="btn btn-secondary flex-grow-1">重置</button>
+                </div>
+            </div>
+            <div class="row mt-3 mode-panel">
+                <div class="col-md-12">
+                    <label class="form-label">计算模式:</label>
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn active" data-mode="manual">预览模式</button>
+                        <button type="button" class="btn" data-mode="dimension">自定义模式</button>
+                        <button type="button" class="btn" data-mode="ratio">计算比例</button>
+                    </div>
+                </div>
+            </div>
+            <div id="manualInput" class="row input-group">
+                <div class="col-md-2">
+                    <label for="rows" class="form-label">行数:</label>
+                    <input type="number" id="rows" class="form-control" value="2" min="1" placeholder="请输入行数">
+                </div>
+                <div class="col-md-2">
+                    <label for="cols" class="form-label">列数:</label>
+                    <input type="number" id="cols" class="form-control" value="2" min="1" placeholder="请输入列数">
+                </div>
+            </div>
+            <div id="dimensionInput" class="row input-group" style="display: none;">
+                <div class="col-md-3">
+                    <label for="totalWidth" class="form-label">宽度 (m):</label>
+                    <input type="number" id="totalWidth" class="form-control" step="0.1" min="0.1" value="0" placeholder="请输入宽度 (m)">
+                </div>
+                <div class="col-md-3">
+                    <label for="totalHeight" class="form-label">高度 (m):</label>
+                    <input type="number" id="totalHeight" class="form-control" step="0.1" min="0.1" value="0" placeholder="请输入高度 (m)">
+                </div>
+                <div class="col-md-3">
+                    <label for="aspectRatio" class="form-label">宽高比 (宽度:高度):</label>
+                    <select id="aspectRatio" class="form-select">
+                        <option value="16:9" selected>16:9 (常见宽屏)</option>
+                        <option value="4:3">4:3 (传统显示)</option>
+                        <option value="16:10">16:10 (笔记本常见)</option>
+                        <option value="21:9">21:9 (超宽屏)</option>
+                    </select>
+                </div>
+            </div>
+            <div id="ratioInput" class="row input-group" style="display: none;">
+                <div class="col-md-3">
+                    <label for="ratioWidth" class="form-label">宽度 (m):</label>
+                    <input type="number" id="ratioWidth" class="form-control" step="0.1" min="0.1" value="0" placeholder="请输入宽度 (m)">
+                </div>
+                <div class="col-md-3">
+                    <label for="ratioHeight" class="form-label">高度 (m):</label>
+                    <input type="number" id="ratioHeight" class="form-control" step="0.1" min="0.1" value="0" placeholder="请输入高度 (m)">
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-md-12 d-flex align-items-center gap-3">
+                    <label for="imageUpload" class="custom-file-upload btn btn-success">
+                        <i class="fas fa-upload me-2"></i>选择图片
+                    </label>
+                    <button id="toggleImageBtn" class="btn btn-outline-success" disabled>
+                        <i class="fas fa-image me-2"></i>显示图片预览
+                    </button>
+                    <button id="clearImageBtn" class="btn btn-outline-secondary" disabled>
+                        <i class="fas fa-trash me-2"></i>清除图片
+                    </button>
+                    <span id="imagePreviewStatus" class="text-light ms-2">未选择图片</span>
+                    <input id="imageUpload" type="file" accept="image/*" style="display: none;">
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-12">
+                    <div class="export-panel">
+                        <label class="form-label me-2">导出结果:</label>
+                        <button id="exportPDF" class="btn btn-outline-light me-2">
+                            <i class="fas fa-file-pdf me-1"></i>PDF
+                        </button>
+                        <button id="exportExcel" class="btn btn-outline-light">
+                            <i class="fas fa-file-excel me-1"></i>Excel
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="alert alert-info" id="dimensionInfo">
+            大屏数据将会显示在这里
+        </div>
+        <div id="canvasContainer">
+            <canvas id="ledCanvas"></canvas>
+        </div>
+    </div>
+
+    <script>
+        const App = (function() {
+            const elements = {
+                canvas: document.getElementById('ledCanvas'),
+                dimensionInfo: document.getElementById('dimensionInfo'),
+                generateBtn: document.getElementById('generateBtn'),
+                resetBtn: document.getElementById('resetBtn'),
+                canvasContainer: document.getElementById('canvasContainer'),
+                pixelPitchSelect: document.getElementById('pixelPitch'),
+                moduleSizeSelect: document.getElementById('moduleSize'),
+                rowsInput: document.getElementById('rows'),
+                colsInput: document.getElementById('cols'),
+                modeButtons: document.querySelectorAll('.mode-panel .btn'),
+                aspectRatioSelect: document.getElementById('aspectRatio'),
+                totalWidthInput: document.getElementById('totalWidth'),
+                totalHeightInput: document.getElementById('totalHeight'),
+                imageUpload: document.getElementById('imageUpload'),
+                imagePreviewStatus: document.getElementById('imagePreviewStatus'),
+                toggleImageBtn: document.getElementById('toggleImageBtn'),
+                clearImageBtn: document.getElementById('clearImageBtn'),
+                ratioWidthInput: document.getElementById('ratioWidth'),
+                ratioHeightInput: document.getElementById('ratioHeight')
+            };
+
+            const exportElements = {
+                pdfBtn: document.getElementById('exportPDF'),
+                excelBtn: document.getElementById('exportExcel')
+            };
+
+            const ctx = elements.canvas.getContext('2d');
+            let isInitialState = true;
+            let currentMode = 'manual';
+            let uploadedImage = null;
+            let isImageVisible = false;
+
+            function init() {
+                loadSavedConfig();
+                setupEventListeners();
+                setupDimensionLinkage();
+                setupExportListeners();
+                resizeCanvas(800, 500);
+                drawWelcomeScreen();
+                const initEvent = new Event('change');
+                elements.pixelPitchSelect.dispatchEvent(initEvent);
+            }
+
+            function loadSavedConfig() {
+                const savedConfig = JSON.parse(localStorage.getItem('ledScreenConfig'));
+                if (savedConfig) {
+                    elements.pixelPitchSelect.value = savedConfig.pixelPitch || '1.25';
+                    elements.moduleSizeSelect.value = savedConfig.moduleSize || '320x160';
+                    elements.rowsInput.value = savedConfig.rows || 2;
+                    elements.colsInput.value = savedConfig.cols || 2;
+                    elements.totalWidthInput.value = savedConfig.totalWidth || 0;
+                    elements.totalHeightInput.value = savedConfig.totalHeight || 0;
+                    elements.aspectRatioSelect.value = savedConfig.aspectRatio || '16:9';
+                    currentMode = savedConfig.mode || 'manual';
+                    elements.modeButtons.forEach(btn => btn.classList.remove('active'));
+                    document.querySelector(`[data-mode="${currentMode}"]`).classList.add('active');
+                    document.querySelectorAll('.input-group').forEach(group => group.style.display = 'none');
+                    document.getElementById(currentMode + 'Input').style.display = 'flex';
+                }
+            }
+
+            function saveConfig() {
+                const config = {
+                    pixelPitch: elements.pixelPitchSelect.value,
+                    moduleSize: elements.moduleSizeSelect.value,
+                    rows: elements.rowsInput.value,
+                    cols: elements.colsInput.value,
+                    totalWidth: elements.totalWidthInput.value,
+                    totalHeight: elements.totalHeightInput.value,
+                    aspectRatio: elements.aspectRatioSelect.value,
+                    mode: currentMode
+                };
+                localStorage.setItem('ledScreenConfig', JSON.stringify(config));
+            }
+
+            function setupEventListeners() {
+                elements.pixelPitchSelect.addEventListener('change', updateModuleSizeOptions);
+                [elements.rowsInput, elements.colsInput, elements.pixelPitchSelect, elements.moduleSizeSelect, elements.aspectRatioSelect, elements.totalWidthInput, elements.totalHeightInput, elements.ratioWidthInput, elements.ratioHeightInput].forEach(input => {
+                    input.addEventListener('change', () => elements.generateBtn.disabled = false);
+                    input.addEventListener('input', () => elements.generateBtn.disabled = false);
+                });
+                elements.modeButtons.forEach(button => button.addEventListener('click', switchMode));
+                elements.generateBtn.addEventListener('click', generateLayout);
+                elements.resetBtn.addEventListener('click', resetCanvas);
+                elements.imageUpload.addEventListener('change', handleImageUpload);
+                elements.toggleImageBtn.addEventListener('click', toggleImageVisibility);
+                elements.clearImageBtn.addEventListener('click', clearImage);
+
+                [elements.totalWidthInput, elements.totalHeightInput].forEach(input => {
+                    input.addEventListener('focus', () => input.classList.add('active'));
+                    input.addEventListener('blur', () => {
+                        if (!input.value) input.classList.remove('active');
+                    });
+                    input.addEventListener('input', () => {
+                        if (input.value) {
+                            input.classList.add('active');
+                        } else {
+                            input.classList.remove('active');
+                        }
+                    });
+                });
+
+                elements.aspectRatioSelect.addEventListener('change', () => {
+                    elements.aspectRatioSelect.classList.add('active');
+                });
+
+                elements.imageUpload.addEventListener('change', () => {
+                    const fileLabel = document.querySelector('.custom-file-upload');
+                    if (elements.imageUpload.files.length > 0) {
+                        fileLabel.classList.add('active');
+                    } else {
+                        fileLabel.classList.remove('active');
+                    }
+                });
+            }
+
+            function setupExportListeners() {
+                exportElements.pdfBtn.addEventListener('click', exportToPDF);
+                exportElements.excelBtn.addEventListener('click', exportToExcel);
+            }
+
+            async function exportToPDF() {
+                const { jsPDF } = window.jspdf;
+                const loadingDiv = document.createElement('div');
+                loadingDiv.style.position = 'fixed';
+                loadingDiv.style.top = '0';
+                loadingDiv.style.left = '0';
+                loadingDiv.style.width = '100%';
+                loadingDiv.style.height = '100%';
+                loadingDiv.style.backgroundColor = 'rgba(0,0,0,0.7)';
+                loadingDiv.style.zIndex = '9999';
+                loadingDiv.style.display = 'flex';
+                loadingDiv.style.justifyContent = 'center';
+                loadingDiv.style.alignItems = 'center';
+                loadingDiv.style.color = 'white';
+                loadingDiv.style.fontSize = '24px';
+                loadingDiv.innerHTML = '<div>正在生成PDF，请稍候...</div>';
+                document.body.appendChild(loadingDiv);
+
+                setTimeout(async () => {
+                    try {
+                        const doc = new jsPDF({
+                            orientation: 'portrait',
+                            unit: 'mm',
+                            format: 'a4'
+                        });
+
+                        const pageWidth = doc.internal.pageSize.getWidth();
+                        const pageHeight = doc.internal.pageSize.getHeight();
+                        const mainCanvas = document.createElement('canvas');
+                        const mainCtx = mainCanvas.getContext('2d');
+                        mainCanvas.width = 2480;
+                        mainCanvas.height = 3508;
+
+                        mainCtx.fillStyle = 'white';
+                        mainCtx.fillRect(0, 0, mainCanvas.width, mainCanvas.height);
+
+                        const scaleRatio = mainCanvas.width / pageWidth;
+
+                        function mmToPx(mm) {
+                            return mm * scaleRatio;
+                        }
+
+                        mainCtx.font = 'bold 70px "Microsoft YaHei", SimHei, "Heiti SC"';
+                        mainCtx.fillStyle = '#1a2b5f';
+                        mainCtx.textAlign = 'center';
+                        mainCtx.textBaseline = 'top';
+                        mainCtx.fillText("LED大屏模组布局方案", mainCanvas.width / 2, mmToPx(15));
+
+                        mainCtx.font = 'bold 50px "Microsoft YaHei", SimHei, "Heiti SC"';
+                        mainCtx.fillText("LED显示屏参数详情", mainCanvas.width / 2, mmToPx(35));
+
+                        const moduleSize = elements.moduleSizeSelect.value.split('x');
+                        const moduleWidth = parseFloat(moduleSize[0]);
+                        const moduleHeight = parseFloat(moduleSize[1]);
+                        const rows = parseInt(elements.rowsInput.value);
+                        const cols = parseInt(elements.colsInput.value);
+                        const pixelPitch = elements.pixelPitchSelect.value;
+                        const totalWidth = (cols * moduleWidth / 1000).toFixed(2);
+                        const totalHeight = (rows * moduleHeight / 1000).toFixed(2);
+                        const totalArea = (totalWidth * totalHeight).toFixed(2);
+                        const resolutionX = Math.floor(moduleWidth / pixelPitch) * cols;
+                        const resolutionY = Math.floor(moduleHeight / pixelPitch) * rows;
+                        const ratio = calculateClosestRatio(moduleWidth * cols, moduleHeight * rows);
+
+                        const moduleResX = Math.floor(moduleWidth / pixelPitch);
+                        const moduleResY = Math.floor(moduleHeight / pixelPitch);
+                        const totalResX = moduleResX * cols;
+                        const totalResY = moduleResY * rows;
+                        const totalPixels = totalResX * totalResY;
+                        const totalPixelsInTenThousands = Math.round(totalPixels / 10000);
+                        const totalPixelsText = `${totalPixelsInTenThousands}万 px`;
+
+                        const tableData = [
+                            { label: "LED点间距", value: `P${pixelPitch} mm`, label2: "布局配置", value2: `${rows} 行 x ${cols} 列` },
+                            { label: "模组尺寸", value: `${moduleSize.join(' x ')} mm`, label2: "模组分辨率", value2: `${moduleResX} x ${moduleResY} px` },
+                            { label: "总宽度", value: `${totalWidth} m`, label2: "总高度", value2: `${totalHeight} m` },
+                            { label: "分辨率", value: `${totalResX} x ${totalResY} px`, label2: "总像素", value2: totalPixelsText },
+                            { label: "总面积", value: `${totalArea} ㎡`, label2: "屏幕比例", value2: `${ratio.name}` }
+                        ];
+
+                        const tableTop = mmToPx(45);
+                        const tableWidth = mmToPx(pageWidth - 20);
+                        const cellHeight = 100;
+                        const tableLeft = (mainCanvas.width - tableWidth) / 2;
+
+                        const col1Width = tableWidth * 0.2;
+                        const col2Width = tableWidth * 0.3;
+                        const col3Width = tableWidth * 0.2;
+                        const col4Width = tableWidth * 0.3;
+
+                        for (let i = 0; i < tableData.length; i++) {
+                            const row = tableData[i];
+                            const rowY = tableTop + (i * cellHeight);
+
+                            mainCtx.fillStyle = i % 2 === 0 ? '#f0f0f0' : '#ffffff';
+                            mainCtx.fillRect(tableLeft, rowY, tableWidth, cellHeight);
+
+                            mainCtx.strokeStyle = '#cccccc';
+                            mainCtx.lineWidth = 2;
+                            mainCtx.strokeRect(tableLeft, rowY, tableWidth, cellHeight);
+
+                            mainCtx.beginPath();
+                            mainCtx.moveTo(tableLeft + col1Width, rowY);
+                            mainCtx.lineTo(tableLeft + col1Width, rowY + cellHeight);
+                            mainCtx.stroke();
+
+                            mainCtx.beginPath();
+                            mainCtx.moveTo(tableLeft + col1Width + col2Width, rowY);
+                            mainCtx.lineTo(tableLeft + col1Width + col2Width, rowY + cellHeight);
+                            mainCtx.stroke();
+
+                            mainCtx.beginPath();
+                            mainCtx.moveTo(tableLeft + col1Width + col2Width + col3Width, rowY);
+                            mainCtx.lineTo(tableLeft + col1Width + col2Width + col3Width, rowY + cellHeight);
+                            mainCtx.stroke();
+
+                            mainCtx.fillStyle = '#1a2b5f';
+                            mainCtx.font = 'bold 35px "Microsoft YaHei", SimHei, "Heiti SC"';
+                            mainCtx.textAlign = 'left';
+                            mainCtx.textBaseline = 'middle';
+                            mainCtx.fillText(row.label, tableLeft + 10, rowY + cellHeight / 2);
+
+                            mainCtx.font = 'normal 35px "Microsoft YaHei", SimHei, "Heiti SC"';
+                            mainCtx.textAlign = 'right';
+                            mainCtx.fillText(row.value, tableLeft + col1Width + col2Width - 10, rowY + cellHeight / 2);
+
+                            mainCtx.font = 'bold 35px "Microsoft YaHei", SimHei, "Heiti SC"';
+                            mainCtx.textAlign = 'left';
+                            mainCtx.fillText(row.label2, tableLeft + col1Width + col2Width + 10, rowY + cellHeight / 2);
+
+                            mainCtx.font = 'normal 35px "Microsoft YaHei", SimHei, "Heiti SC"';
+                            mainCtx.textAlign = 'right';
+                            mainCtx.fillText(row.value2, tableLeft + tableWidth - 10, rowY + cellHeight / 2);
+                        }
+
+                        const tableHeight = tableData.length * cellHeight;
+
+                        const screenWidth = cols * moduleWidth;
+                        const screenHeight = rows * moduleHeight;
+                        const screenRatio = screenWidth / screenHeight;
+
+                        const screenCanvas = document.createElement('canvas');
+                        const screenCtx = screenCanvas.getContext('2d');
+                        const baseSize = 1000;
+                        screenCanvas.width = screenRatio >= 1 ? baseSize : baseSize * screenRatio;
+                        screenCanvas.height = screenRatio >= 1 ? baseSize / screenRatio : baseSize;
+
+                        const moduleScaleWidth = screenCanvas.width / cols;
+                        const moduleScaleHeight = screenCanvas.height / rows;
+
+                        screenCtx.fillStyle = '#f0f0f0';
+                        screenCtx.fillRect(0, 0, screenCanvas.width, screenCanvas.height);
+
+                        if (uploadedImage && isImageVisible) {
+                            screenCtx.drawImage(uploadedImage, 0, 0, screenCanvas.width, screenCanvas.height);
+                        }
+
+                        screenCtx.save();
+                        screenCtx.globalAlpha = 0.15;
+                        screenCtx.font = `${screenCanvas.width * 0.05}px "Microsoft YaHei"`;
+                        screenCtx.fillStyle = '#000000';
+                        screenCtx.textAlign = 'center';
+                        screenCtx.textBaseline = 'middle';
+                        screenCtx.translate(screenCanvas.width/2, screenCanvas.height/2);
+                        screenCtx.rotate(-15 * Math.PI / 180);
+                        screenCtx.fillText('禾禾慧能(北京)科技有限公司', 0, 0);
+                        screenCtx.restore();
+
+                        screenCtx.strokeStyle = uploadedImage && isImageVisible ? 'rgba(255,255,255,0.6)' : '#666666';
+                        screenCtx.lineWidth = 1;
+
+                        for (let i = 0; i <= cols; i++) {
+                            const x = i * moduleScaleWidth;
+                            screenCtx.beginPath();
+                            screenCtx.moveTo(x, 0);
+                            screenCtx.lineTo(x, screenCtx.canvas.height);
+                            screenCtx.stroke();
+                        }
+
+                        for (let i = 0; i <= rows; i++) {
+                            const y = i * moduleScaleHeight;
+                            screenCtx.beginPath();
+                            screenCtx.moveTo(0, y);
+                            screenCtx.lineTo(screenCtx.canvas.width, y);
+                            screenCtx.stroke();
+                        }
+
+                        const imgY = tableTop + tableHeight + 200;
+                        const maxDrawWidth = mainCanvas.width - mmToPx(40);
+                        const maxDrawHeight = mainCanvas.height - imgY - mmToPx(40);
+
+                        let drawWidth, drawHeight;
+                        if (maxDrawWidth / screenRatio <= maxDrawHeight) {
+                            drawWidth = maxDrawWidth * 0.9;
+                            drawHeight = drawWidth / screenRatio;
+                        } else {
+                            drawHeight = maxDrawHeight * 0.9;
+                            drawWidth = drawHeight * screenRatio;
+                        }
+
+                        const imgLeft = (mainCanvas.width - drawWidth) / 2;
+                        const borderWidth = Math.max(drawWidth * 0.01, 10);
+                        const wallPadding = 100;
+
+                        const topSpace = 80;
+                        const wallPattern = mainCtx.createPattern(createWallPattern(), 'repeat');
+                        mainCtx.save();
+
+                        mainCtx.fillStyle = wallPattern;
+                        mainCtx.fillRect(
+                            imgLeft - borderWidth - wallPadding,
+                            imgY - borderWidth - topSpace,
+                            drawWidth + (borderWidth + wallPadding) * 2,
+                            drawHeight + borderWidth * 2 + wallPadding + topSpace
+                        );
+
+                        const wallGradient = mainCtx.createLinearGradient(
+                            imgLeft - borderWidth - wallPadding,
+                            imgY - borderWidth - topSpace,
+                            imgLeft - borderWidth - wallPadding,
+                            imgY + drawHeight + borderWidth * 2 + wallPadding
+                        );
+
+                        wallGradient.addColorStop(0, 'rgba(0,0,0,0.4)');
+                        wallGradient.addColorStop(0.2, 'rgba(0,0,0,0.1)');
+                        wallGradient.addColorStop(0.8, 'rgba(0,0,0,0.1)');
+                        wallGradient.addColorStop(1, 'rgba(0,0,0,0.5)');
+                        mainCtx.fillStyle = wallGradient;
+                        mainCtx.fillRect(
+                            imgLeft - borderWidth - wallPadding,
+                            imgY - borderWidth - topSpace,
+                            drawWidth + (borderWidth + wallPadding) * 2,
+                            drawHeight + borderWidth * 2 + wallPadding + topSpace
+                        );
+
+                        mainCtx.restore();
+
+                        mainCtx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+                        mainCtx.shadowBlur = 20;
+                        mainCtx.shadowOffsetX = 10;
+                        mainCtx.shadowOffsetY = 10;
+
+                        mainCtx.fillStyle = '#000000';
+                        mainCtx.fillRect(
+                            imgLeft - borderWidth, 
+                            imgY - borderWidth, 
+                            drawWidth + borderWidth * 2, 
+                            drawHeight + borderWidth * 2
+                        );
+
+                        mainCtx.shadowColor = 'transparent';
+                        mainCtx.shadowBlur = 0;
+                        mainCtx.shadowOffsetX = 0;
+                        mainCtx.shadowOffsetY = 0;
+
+                        mainCtx.drawImage(screenCanvas, imgLeft, imgY, drawWidth, drawHeight);
+
+                        mainCtx.strokeStyle = '#333333';
+                        mainCtx.lineWidth = 2;
+                        mainCtx.strokeRect(imgLeft, imgY, drawWidth, drawHeight);
+                        mainCtx.strokeRect(
+                            imgLeft - borderWidth, 
+                            imgY - borderWidth, 
+                            drawWidth + borderWidth * 2, 
+                            drawHeight + borderWidth * 2
+                        );
+
+                        const screwRadius = borderWidth * 0.3;
+                        const screwPositions = [
+                            [imgLeft - borderWidth/2, imgY - borderWidth/2],
+                            [imgLeft + drawWidth + borderWidth/2, imgY - borderWidth/2],
+                            [imgLeft - borderWidth/2, imgY + drawHeight + borderWidth/2],
+                            [imgLeft + drawWidth + borderWidth/2, imgY + drawHeight + borderWidth/2]
+                        ];
+
+                        screwPositions.forEach(([x, y]) => {
+                            mainCtx.beginPath();
+                            mainCtx.arc(x, y, screwRadius, 0, Math.PI * 2);
+                            mainCtx.fillStyle = '#4a4a4a';
+                            mainCtx.fill();
+                            mainCtx.strokeStyle = '#333333';
+                            mainCtx.lineWidth = 1;
+                            mainCtx.stroke();
+
+                            mainCtx.beginPath();
+                            mainCtx.moveTo(x - screwRadius/2, y);
+                            mainCtx.lineTo(x + screwRadius/2, y);
+                            mainCtx.moveTo(x, y - screwRadius/2);
+                            mainCtx.lineTo(x, y + screwRadius/2);
+                            mainCtx.strokeStyle = '#666666';
+                            mainCtx.stroke();
+                        });
+
+                        const dateStr = new Date().toLocaleString();
+                        mainCtx.font = 'italic 30px "Microsoft YaHei", SimHei, "Heiti SC"';
+                        mainCtx.fillStyle = '#808080';
+                        mainCtx.textAlign = 'center';
+                        mainCtx.textBaseline = 'bottom';
+                        mainCtx.fillText(`生成日期: ${dateStr} | LED大屏模组组装工具`, mainCanvas.width / 2, mainCanvas.height - 30);
+
+                        const finalImgData = mainCanvas.toDataURL('image/jpeg', 0.9);
+                        doc.addImage(finalImgData, 'JPEG', 0, 0, pageWidth, pageHeight);
+                        doc.save('LED大屏布局方案.pdf');
+                    } catch (error) {
+                        console.error("PDF生成失败:", error);
+                        alert("导出PDF时出错，请重试");
+                    } finally {
+                        document.body.removeChild(loadingDiv);
+                    }
+                }, 100);
+            }
+
+            function createWallPattern() {
+                const patternCanvas = document.createElement('canvas');
+                const patternCtx = patternCanvas.getContext('2d');
+                const size = 40;
+                patternCanvas.width = size;
+                patternCanvas.height = size;
+
+                patternCtx.fillStyle = '#e6e6e6';
+                patternCtx.fillRect(0, 0, size, size);
+
+                patternCtx.strokeStyle = '#d9d9d9';
+                patternCtx.lineWidth = 1;
+
+                for (let y = 0; y < size; y += 8) {
+                    patternCtx.beginPath();
+                    patternCtx.moveTo(0, y);
+                    patternCtx.lineTo(size, y);
+                    patternCtx.stroke();
+                }
+
+                for (let x = 0; x < size; x += 8) {
+                    patternCtx.beginPath();
+                    patternCtx.moveTo(x, 0);
+                    patternCtx.lineTo(x, size);
+                    patternCtx.stroke();
+                }
+
+                patternCtx.fillStyle = '#cccccc';
+                for (let i = 0; i < 10; i++) {
+                    const x = Math.random() * size;
+                    const y = Math.random() * size;
+                    patternCtx.beginPath();
+                    patternCtx.arc(x, y, 0.5, 0, Math.PI * 2);
+                    patternCtx.fill();
+                }
+
+                return patternCanvas;
+            }
+
+            function exportToExcel() {
+                const wb = XLSX.utils.book_new();
+                const moduleSize = elements.moduleSizeSelect.value.split('x');
+                const moduleWidth = parseFloat(moduleSize[0]);
+                const moduleHeight = parseFloat(moduleSize[1]);
+                const rows = parseInt(elements.rowsInput.value);
+                const cols = parseInt(elements.colsInput.value);
+                const pixelPitch = elements.pixelPitchSelect.value;
+                const totalWidth = (cols * moduleWidth / 1000).toFixed(2);
+                const totalHeight = (rows * moduleHeight / 1000).toFixed(2);
+                const totalArea = (totalWidth * totalHeight).toFixed(2);
+                const resolutionX = Math.floor(moduleWidth / pixelPitch) * cols;
+                const resolutionY = Math.floor(moduleHeight / pixelPitch) * rows;
+                const ratio = calculateClosestRatio(moduleWidth * cols, moduleHeight * rows);
+
+                const moduleResX = Math.floor(moduleWidth / pixelPitch);
+                const moduleResY = Math.floor(moduleHeight / pixelPitch);
+                const totalResX = moduleResX * cols;
+                const totalResY = moduleResY * rows;
+                const totalPixels = totalResX * totalResY;
+                const totalPixelsInTenThousands = Math.round(totalPixels / 10000);
+                const totalPixelsText = `${totalPixelsInTenThousands}万 px`;
+
+                const data = [
+                    ['LED大屏模组布局方案'], 
+                    [], 
+                    ['LED显示屏参数详情'], 
+                    [], 
+                    ['参数', '值', '参数', '值'],
+                    ['LED点间距', `P${pixelPitch} mm`, '布局配置', `${rows} 行 x ${cols} 列`],
+                    ['模组尺寸', `${moduleSize.join(' x ')} mm`, '模组分辨率', `${moduleResX} x ${moduleResY} px`],
+                    ['总宽度', `${totalWidth} m`, '总高度', `${totalHeight} m`],
+                    ['分辨率', `${totalResX} x ${totalResY} px`, '总像素', totalPixelsText],
+                    ['总面积', `${totalArea} ㎡`, '屏幕比例', `${ratio.name}`]
+                ];
+
+                const ws = XLSX.utils.aoa_to_sheet(data);
+                ws['!merges'] = [
+                    { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
+                    { s: { r: 2, c: 0 }, e: { r: 2, c: 3 } }
+                ];
+
+                ws['!cols'] = [
+                    { wch: 12 },
+                    { wch: 18 },
+                    { wch: 12 },
+                    { wch: 18 }
+                ];
+
+                const range = { s: { r: 0, c: 0 }, e: { r: 8, c: 3 } };
+                for (let R = range.s.r; R <= range.e.r; R++) {
+                    for (let C = range.s.c; C <= range.e.c; C++) {
+                        const cell_ref = XLSX.utils.encode_cell({ r: R, c: C });
+                        if (!ws[cell_ref]) {
+                            ws[cell_ref] = { v: '', t: 's' };
+                        }
+                        if (!ws[cell_ref].s) ws[cell_ref].s = {};
+                        ws[cell_ref].s = {
+                            ...ws[cell_ref].s,
+                            border: {
+                                top: { style: 'thin', color: { rgb: "000000" } },
+                                bottom: { style: 'thin', color: { rgb: "000000" } },
+                                left: { style: 'thin', color: { rgb: "000000" } },
+                                right: { style: 'thin', color: { rgb: "000000" } }
+                            },
+                            alignment: {
+                                vertical: 'center',
+                                horizontal: (R <= 2) ? 'center' : (C % 2 ? 'right' : 'left')
+                            }
+                        };
+                        if (R >= 4 && (C === 0 || C === 2)) {
+                            ws[cell_ref].s.font = { bold: true };
+                        }
+                    }
+                }
+
+                if (ws['A1']) {
+                    ws['A1'].s = {
+                        ...ws['A1'].s,
+                        fill: { fgColor: { rgb: "C4BD97" } },
+                        font: { sz: 14, bold: true }
+                    };
+                }
+
+                if (ws['A3']) {
+                    ws['A3'].s = {
+                        ...ws['A3'].s,
+                        fill: { fgColor: { rgb: "E9EDF7" } },
+                        font: { bold: true }
+                    };
+                }
+
+                XLSX.utils.book_append_sheet(wb, ws, "布局方案");
+                XLSX.writeFile(wb, 'LED大屏布局方案.xlsx');
+            }
+
+            function updateModuleSizeOptions() {
+                const pitchToSizeMap = {
+                    "1.25": ["300x337.5", "320x160"],
+                    "1.53": ["320x160"],
+                    "1.66": ["320x160"],
+                    "1.8": ["320x160", "304x168.5"],
+                    "2": ["320x160", "304x168.5"],
+                    "2.5": ["320x160", "304x168.5"],
+                    "3": ["256x128", "192x192"],
+                    "4": ["256x128", "192x192"]
+                };
+                const selectedPitch = elements.pixelPitchSelect.value;
+                const availableSizes = pitchToSizeMap[selectedPitch];
+                elements.moduleSizeSelect.innerHTML = '';
+                availableSizes.forEach(size => {
+                    const option = document.createElement('option');
+                    option.value = size;
+                    option.textContent = size.replace('x', ' x ');
+                    elements.moduleSizeSelect.appendChild(option);
+                });
+                elements.generateBtn.disabled = false;
+            }
+
+            function switchMode(event) {
+                elements.modeButtons.forEach(btn => btn.classList.remove('active'));
+                event.target.classList.add('active');
+                currentMode = event.target.getAttribute('data-mode');
+                document.querySelectorAll('.input-group').forEach(group => group.style.display = 'none');
+                document.getElementById(currentMode + 'Input').style.display = 'flex';
+                elements.generateBtn.disabled = false;
+                saveConfig();
+            }
+
+            function resizeCanvas(width, height) {
+                elements.canvas.width = width;
+                elements.canvas.height = height;
+                elements.canvas.style.width = `${width}px`;
+                elements.canvas.style.height = `${height}px`;
+            }
+
+            function drawWelcomeScreen() {
+                const containerWidth = elements.canvasContainer.clientWidth;
+                const containerHeight = elements.canvasContainer.clientHeight;
+                resizeCanvas(containerWidth, containerHeight);
+
+                ctx.clearRect(0, 0, elements.canvas.width, elements.canvas.height);
+                const gradient = ctx.createLinearGradient(0, 0, elements.canvas.width, elements.canvas.height);
+                gradient.addColorStop(0, '#e6f0fa');
+                gradient.addColorStop(0.5, '#d0e3ff');
+                gradient.addColorStop(1, '#a3cfff');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, elements.canvas.width, elements.canvas.height);
+
+                ctx.fillStyle = '#1a2b5f';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.font = 'bold 36px Inter';
+                ctx.fillText('欢迎使用大屏模组组装工具', elements.canvas.width / 2, elements.canvas.height / 2 - 20);
+                ctx.font = '18px Inter';
+                ctx.fillText('点击"生成布局"开始设计您的大屏', elements.canvas.width / 2, elements.canvas.height / 2 + 30);
+            }
+
+            function getAspectRatio() {
+                let ratioStr = elements.aspectRatioSelect.value;
+                const ratioMatch = ratioStr.match(/^(\d+(\.\d+)?):(\d+(\.\d+)?)$/);
+                if (!ratioMatch) {
+                    alert('宽高比格式错误，请输入如 "16:9" 或 "2:1" 的格式');
+                    return null;
+                }
+                const ratioX = parseFloat(ratioMatch[1]);
+                const ratioY = parseFloat(ratioMatch[3]);
+                if (ratioX <= 0 || ratioY <= 0) {
+                    alert('宽高比必须大于0');
+                    return null;
+                }
+                return { ratioX, ratioY };
+            }
+
+            function setupDimensionLinkage() {
+                const totalWidthInput = elements.totalWidthInput;
+                const totalHeightInput = elements.totalHeightInput;
+                const aspectRatioSelect = elements.aspectRatioSelect;
+
+                function calculateDimension(sourceInput, targetInput, isWidth) {
+                    const ratio = getAspectRatio();
+                    if (!ratio) return;
+                    const sourceValue = parseFloat(sourceInput.value);
+                    if (isNaN(sourceValue) || sourceValue <= 0) return;
+                    let newValue;
+                    if (isWidth) {
+                        newValue = sourceValue * ratio.ratioY / ratio.ratioX;
+                    } else {
+                        newValue = sourceValue * ratio.ratioX / ratio.ratioY;
+                    }
+                    targetInput.value = newValue.toFixed(2);
+                }
+
+                totalWidthInput.addEventListener('input', () => {
+                    if (currentMode === 'dimension') {
+                        calculateDimension(totalWidthInput, totalHeightInput, true);
+                    }
+                });
+
+                totalHeightInput.addEventListener('input', () => {
+                    if (currentMode === 'dimension') {
+                        calculateDimension(totalHeightInput, totalWidthInput, false);
+                    }
+                });
+
+                aspectRatioSelect.addEventListener('change', () => {
+                    if (currentMode === 'dimension') {
+                        calculateDimension(totalWidthInput, totalHeightInput, true);
+                    }
+                });
+            }
+
+            function calculateClosestRatio(width, height) {
+                const commonRatios = [
+                    { name: '16:9', value: 16/9 },
+                    { name: '16:10', value: 16/10 },
+                    { name: '4:3', value: 4/3 },
+                    { name: '3:2', value: 3/2 },
+                    { name: '21:9', value: 21/9 },
+                    { name: '1:1', value: 1 },
+                    { name: '9:16', value: 9/16 },
+                    { name: '16:8', value: 16/8 },
+                    { name: '32:9', value: 32/9 },
+                    { name: '5:4', value: 5/4 }
+                ];
+
+                const actualRatio = width / height;
+                let closest = commonRatios[0];
+                let minDiff = Math.abs(actualRatio - closest.value);
+
+                for (let ratio of commonRatios) {
+                    const diff = Math.abs(actualRatio - ratio.value);
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        closest = ratio;
+                    }
+                }
+
+                return closest;
+            }
+
+            function updateDimensionInfo(moduleWidth, moduleHeight, rows, cols) {
+                const totalWidth = cols * moduleWidth;
+                const totalHeight = rows * moduleHeight;
+                const totalWidthMeters = (totalWidth / 1000).toFixed(2);
+                const totalHeightMeters = (totalHeight / 1000).toFixed(2);
+                const totalAreaMeters = ((totalWidth * totalHeight) / 1000000).toFixed(2);
+                const pixelPitch = elements.pixelPitchSelect.value;
+                const resolutionX = Math.floor(moduleWidth / pixelPitch) * cols;
+                const resolutionY = Math.floor(moduleHeight / pixelPitch) * rows;
+                const screenRatio = (totalWidth / totalHeight).toFixed(2);
+                const ratio = calculateClosestRatio(totalWidth, totalHeight);
+                const closestRatio = ` (最接近 ${ratio.name})`;
+
+                elements.dimensionInfo.innerHTML = `大屏数据: 宽度 <span class="dimension-highlight">${totalWidthMeters} m</span>, 高度 <span class="dimension-highlight">${totalHeightMeters} m</span>, 面积 <span class="dimension-highlight">${totalAreaMeters} ㎡</span> | 布局: <span class="dimension-highlight">${rows}行 x ${cols}列</span> | 点间距: <span class="dimension-highlight">P${pixelPitch}</span> | 分辨率: <span class="dimension-highlight">${resolutionX} x ${resolutionY}</span> | 屏幕比例: <span class="dimension-highlight">${screenRatio}:1${closestRatio}</span>`;
+            }
+
+            function generateLayout() {
+                let moduleSize = elements.moduleSizeSelect.value.split('x');
+                let moduleWidth = parseFloat(moduleSize[0]);
+                let moduleHeight = parseFloat(moduleSize[1]);
+                let rows, cols;
+
+                if (currentMode === 'manual') {
+                    rows = parseInt(elements.rowsInput.value);
+                    cols = parseInt(elements.colsInput.value);
+                    if (rows < 1 || cols < 1) {
+                        alert('行数和列数必须大于0');
+                        return;
+                    }
+                } else if (currentMode === 'dimension') {
+                    const totalWidth = parseFloat(elements.totalWidthInput.value) * 1000;
+                    const totalHeight = parseFloat(elements.totalHeightInput.value) * 1000;
+                    if (totalWidth <= 0 || totalHeight <= 0) {
+                        alert('宽度和高度必须大于0');
+                        return;
+                    }
+                    rows = Math.round(totalHeight / moduleHeight);
+                    cols = Math.round(totalWidth / moduleWidth);
+                } else if (currentMode === 'ratio') {
+                    const totalWidth = parseFloat(elements.ratioWidthInput.value) * 1000;
+                    const totalHeight = parseFloat(elements.ratioHeightInput.value) * 1000;
+                    if (totalWidth <= 0 || totalHeight <= 0) {
+                        alert('宽度和高度必须大于0');
+                        return;
+                    }
+                    rows = Math.round(totalHeight / moduleHeight);
+                    cols = Math.round(totalWidth / moduleWidth);
+                }
+
+                elements.rowsInput.value = rows;
+                elements.colsInput.value = cols;
+
+                const containerWidth = elements.canvasContainer.clientWidth - 40;
+                const containerHeight = Math.max(500, elements.canvasContainer.clientHeight) - 40;
+                let totalWidth = cols * moduleWidth + (cols - 1) * 2;
+                let totalHeight = rows * moduleHeight + (rows - 1) * 2;
+                let scaleX = containerWidth / totalWidth;
+                let scaleY = containerHeight / totalHeight;
+                let scale = Math.min(scaleX, scaleY, 1);
+                resizeCanvas(containerWidth, containerHeight);
+                drawModules(moduleWidth, moduleHeight, rows, cols, scale);
+                elements.generateBtn.disabled = true;
+                isInitialState = false;
+                saveConfig();
+            }
+
+            function drawModules(moduleWidth, moduleHeight, rows, cols, scale) {
+                ctx.clearRect(0, 0, elements.canvas.width, elements.canvas.height);
+                const gap = 2 * scale;
+                const scaledModuleWidth = moduleWidth * scale;
+                const scaledModuleHeight = moduleHeight * scale;
+                const totalLayoutWidth = cols * scaledModuleWidth + (cols - 1) * gap;
+                const totalLayoutHeight = rows * scaledModuleHeight + (rows - 1) * gap;
+                const startX = (elements.canvas.width - totalLayoutWidth) / 2;
+                const startY = (elements.canvas.height - totalLayoutHeight) / 2;
+
+                // Background gradient for the layout
+                const gradient = ctx.createLinearGradient(startX, startY, startX + totalLayoutWidth, startY + totalLayoutHeight);
+                gradient.addColorStop(0, '#e6f0fa');
+                gradient.addColorStop(1, '#d0e3ff');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(startX, startY, totalLayoutWidth, totalLayoutHeight);
+
+                if (uploadedImage && isImageVisible) {
+                    ctx.drawImage(uploadedImage, startX, startY, totalLayoutWidth, totalLayoutHeight);
+                    let imgData;
+                    try {
+                        imgData = ctx.getImageData(startX, startY, totalLayoutWidth, totalLayoutHeight);
+                        let brightness = 0;
+                        let pixels = 0;
+                        for (let i = 0; i < imgData.data.length; i += 16) {
+                            brightness += (imgData.data[i] + imgData.data[i + 1] + imgData.data[i + 2]) / 3;
+                            pixels++;
+                        }
+                        brightness = brightness / pixels;
+                        ctx.strokeStyle = brightness > 128 ? 'rgba(26, 43, 95, 0.6)' : 'rgba(255, 255, 255, 0.6)';
+                    } catch (e) {
+                        ctx.strokeStyle = 'rgba(26, 43, 95, 0.6)';
+                    }
+                } else {
+                    ctx.strokeStyle = 'rgba(59, 130, 246, 0.5)';
+                }
+
+                ctx.lineWidth = 1;
+
+                for (let i = 0; i < rows; i++) {
+                    for (let j = 0; j < cols; j++) {
+                        let x = startX + j * (scaledModuleWidth + gap);
+                        let y = startY + i * (scaledModuleHeight + gap);
+                        ctx.strokeRect(x, y, scaledModuleWidth, scaledModuleHeight);
+                    }
+                }
+
+                // Add a glowing grid overlay
+                ctx.strokeStyle = 'rgba(59, 130, 246, 0.2)';
+                ctx.lineWidth = 0.5;
+                for (let i = 0; i <= cols; i++) {
+                    const x = startX + i * (scaledModuleWidth + gap);
+                    ctx.beginPath();
+                    ctx.moveTo(x, startY);
+                    ctx.lineTo(x, startY + totalLayoutHeight);
+                    ctx.stroke();
+                }
+                for (let i = 0; i <= rows; i++) {
+                    const y = startY + i * (scaledModuleHeight + gap);
+                    ctx.beginPath();
+                    ctx.moveTo(startX, y);
+                    ctx.lineTo(startX + totalLayoutWidth, y);
+                    ctx.stroke();
+                }
+
+                updateDimensionInfo(moduleWidth, moduleHeight, rows, cols);
+            }
+
+            function handleImageUpload(event) {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        const img = new Image();
+                        img.onload = function() {
+                            uploadedImage = img;
+                            elements.imagePreviewStatus.textContent = `已选择图片: ${file.name}`;
+                            elements.toggleImageBtn.disabled = false;
+                            elements.clearImageBtn.disabled = false;
+                            isImageVisible = true;
+                            elements.toggleImageBtn.textContent = '隐藏图片预览';
+                            if (!isInitialState) {
+                                generateLayout();
+                            }
+                        };
+                        img.src = e.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                }
+            }
+
+            function toggleImageVisibility() {
+                isImageVisible = !isImageVisible;
+                elements.toggleImageBtn.textContent = isImageVisible ? '隐藏图片预览' : '显示图片预览';
+                if (!isInitialState) {
+                    generateLayout();
+                }
+            }
+
+            function clearImage() {
+                uploadedImage = null;
+                isImageVisible = false;
+                elements.imagePreviewStatus.textContent = '未选择图片';
+                elements.toggleImageBtn.disabled = true;
+                elements.clearImageBtn.disabled = true;
+                elements.toggleImageBtn.textContent = '显示图片预览';
+                elements.imageUpload.value = '';
+                document.querySelector('.custom-file-upload').classList.remove('active');
+                if (!isInitialState) {
+                    generateLayout();
+                }
+            }
+
+            function resetCanvas() {
+                ctx.clearRect(0, 0, elements.canvas.width, elements.canvas.height);
+                resizeCanvas(800, 500);
+                elements.dimensionInfo.innerHTML = '大屏数据将会显示在这里';
+                elements.rowsInput.value = 2;
+                elements.colsInput.value = 2;
+                elements.pixelPitchSelect.value = '1.25';
+                const event = new Event('change');
+                elements.pixelPitchSelect.dispatchEvent(event);
+                elements.generateBtn.disabled = false;
+                isInitialState = true;
+                currentMode = 'manual';
+                elements.modeButtons.forEach(btn => btn.classList.remove('active'));
+                elements.modeButtons[0].classList.add('active');
+                document.querySelectorAll('.input-group').forEach(group => group.style.display = 'none');
+                document.getElementById('manualInput').style.display = 'flex';
+                elements.aspectRatioSelect.value = '16:9';
+                elements.totalWidthInput.value = 0;
+                elements.totalHeightInput.value = 0;
+                elements.totalWidthInput.classList.remove('active');
+                elements.totalHeightInput.classList.remove('active');
+                elements.aspectRatioSelect.classList.remove('active');
+                document.querySelector('.custom-file-upload').classList.remove('active');
+                drawWelcomeScreen();
+                localStorage.removeItem('ledScreenConfig');
+                clearImage();
+            }
+
+            return {
+                init: init
+            };
+        })();
+
+        window.onload = App.init;
+    </script>
+</body>
+</html>
