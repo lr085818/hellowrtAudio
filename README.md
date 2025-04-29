@@ -48,3 +48,9 @@
 git clone https://github.com/your-username/led-layout-tool.git
 cd led-layout-tool
 open index.html
+或使用 VS Code Live Server 插件进行本地访问。
+
+📄 示例截图![1](https://github.com/user-attachments/assets/e5c61cf1-9cb0-4984-883c-f408b3883d85)
+
+
+💡 示例图仅供参考，功能细节以实际页面为准。
