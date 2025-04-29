@@ -49,3 +49,6 @@ git clone https://github.com/your-username/led-layout-tool.git
 cd led-layout-tool
 open index.html
 或使用 VS Code Live Server 插件进行本地访问。
+## 📄 示例截图
+
+![LED大屏模组组装工具预览](./1.png)
